@@ -81,6 +81,7 @@ function App() {
 
   const [profileName, setProfileName] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
+  const [shareStatus, setShareStatus] = useState('');
   const [notice, setNotice] = useState('');
 
   const [decimalHoursValue, setDecimalHoursValue] = useState('2.75');
@@ -141,6 +142,18 @@ function App() {
   const formattedResult = formatNumber(result, precision, scientific);
   const fromLabel = activeCategory.units[fromUnit]?.short ?? fromUnit;
   const toLabel = activeCategory.units[toUnit]?.short ?? toUnit;
+  const currentStatement = `${formatNumber(parsedValue, precision, scientific)} ${fromLabel} = ${formattedResult} ${toLabel}`;
+  const activeUnitCount = Object.keys(activeCategory.units).length;
+  const totalUnitCount = categoryEntries.reduce((total, [, item]) => total + Object.keys(item.units).length, 0);
+
+  const shareUrl = useMemo(() => {
+    const search = new URLSearchParams();
+    search.set('category', category);
+    search.set('from', fromUnit);
+    search.set('to', toUnit);
+    search.set('value', inputValue || '0');
+    return `${window.location.origin}${window.location.pathname}?${search.toString()}`;
+  }, [category, fromUnit, inputValue, toUnit]);
 
   const formulaPreview = useMemo(() => {
     const zero = convertValue(activeCategory, fromUnit, toUnit, 0);
@@ -314,8 +327,7 @@ function App() {
     if (!Number.isFinite(parsedValue) || !Number.isFinite(result)) {
       return;
     }
-    const text = `${formatNumber(parsedValue, precision, scientific)} ${fromLabel} = ${formattedResult} ${toLabel}`;
-    setHistory((prev) => [{ id: Date.now(), text }, ...prev].slice(0, 10));
+    setHistory((prev) => [{ id: Date.now(), text: currentStatement }, ...prev].slice(0, 10));
   };
 
   const clearForm = (): void => {
@@ -347,10 +359,7 @@ function App() {
       return;
     }
 
-    const payload =
-      copyMode === 'result'
-        ? formattedResult
-        : `${formatNumber(parsedValue, precision, scientific)} ${fromLabel} = ${formattedResult} ${toLabel}`;
+    const payload = copyMode === 'result' ? formattedResult : currentStatement;
 
     try {
       await navigator.clipboard.writeText(payload);
@@ -359,6 +368,17 @@ function App() {
     } catch {
       setCopyStatus('Copy blocked');
       setTimeout(() => setCopyStatus(''), 1200);
+    }
+  };
+
+  const copyShareLink = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareStatus('Share link copied');
+      setTimeout(() => setShareStatus(''), 1400);
+    } catch {
+      setShareStatus('Copy blocked');
+      setTimeout(() => setShareStatus(''), 1400);
     }
   };
 
@@ -448,6 +468,26 @@ function App() {
           </button>
         </section>
       )}
+
+      <section className="heroPanel">
+        <div>
+          <p className="eyebrow">Unit Lab app</p>
+          <h1>Convert, save, and share measurements in seconds.</h1>
+          <p>
+            A focused conversion workspace for quick everyday math, reusable profiles, favorite unit pairs, and
+            installable offline access.
+          </p>
+        </div>
+        <div className="workspaceCard" aria-label="Current workspace">
+          <span>Current workspace</span>
+          <strong>{activeCategory.label}</strong>
+          <p>{currentStatement}</p>
+          <button type="button" onClick={copyShareLink}>
+            Copy share link
+          </button>
+          <small>{shareStatus || `${categoryEntries.length} categories and ${totalUnitCount} units ready`}</small>
+        </div>
+      </section>
 
       <section className="shell">
         <aside className="menuPanel">
@@ -610,6 +650,29 @@ function App() {
               <button type="button" onClick={resetCategoryDefaults}>Reset</button>
               <small>{copyStatus || notice}</small>
             </div>
+          </section>
+
+          <section className="insightsGrid" aria-label="Workspace dashboard">
+            <article>
+              <span>Active catalog</span>
+              <strong>{activeUnitCount}</strong>
+              <p>units in {activeCategory.label.toLowerCase()}</p>
+            </article>
+            <article>
+              <span>Saved work</span>
+              <strong>{history.length}</strong>
+              <p>recent conversions</p>
+            </article>
+            <article>
+              <span>Favorites</span>
+              <strong>{favoritePairsForCategory.length}</strong>
+              <p>starred pairs here</p>
+            </article>
+            <article>
+              <span>Profiles</span>
+              <strong>{profiles.length}</strong>
+              <p>reusable setups</p>
+            </article>
           </section>
 
           <section className="historyPanel">
