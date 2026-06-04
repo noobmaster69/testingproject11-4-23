@@ -1,220 +1,290 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  categoryEntries,
+  clockToDecimalHours,
+  converterCatalog,
+  convertValue,
+  decimalHoursToClock,
+  formatNumber,
+  parseNaturalQuery,
+  type CategoryKey,
+  type FavoritePair,
+  type HistoryItem
+} from './converters';
 
-type UnitDefinition = {
-  label: string;
-  short: string;
-  toBase: (value: number) => number;
-  fromBase: (value: number) => number;
+type ThemeMode = 'light' | 'dark' | 'auto';
+type ThemePreset = 'ocean' | 'slate' | 'solarized';
+type CopyMode = 'result' | 'full';
+
+type SavedProfile = {
+  name: string;
+  category: CategoryKey;
+  from: string;
+  to: string;
+  value: string;
 };
 
-type CategoryDefinition = {
-  label: string;
-  units: Record<string, UnitDefinition>;
-  quickPairs: Array<[string, string]>;
-};
-
-type CategoryKey = 'weight' | 'length' | 'temperature' | 'volume' | 'area' | 'speed' | 'time';
-
-type HistoryItem = {
-  id: number;
-  text: string;
-};
-
-type ThemeMode = 'light' | 'dark';
-
-const converterCatalog: Record<CategoryKey, CategoryDefinition> = {
-  weight: {
-    label: 'Weight',
-    units: {
-      kg: { label: 'Kilogram', short: 'kg', toBase: (v) => v, fromBase: (v) => v },
-      lb: { label: 'Pound', short: 'lb', toBase: (v) => v * 0.45359237, fromBase: (v) => v / 0.45359237 },
-      g: { label: 'Gram', short: 'g', toBase: (v) => v / 1000, fromBase: (v) => v * 1000 },
-      oz: { label: 'Ounce', short: 'oz', toBase: (v) => v * 0.028349523125, fromBase: (v) => v / 0.028349523125 },
-      st: { label: 'Stone', short: 'st', toBase: (v) => v * 6.35029318, fromBase: (v) => v / 6.35029318 }
-    },
-    quickPairs: [
-      ['lb', 'kg'],
-      ['kg', 'lb'],
-      ['oz', 'g']
-    ]
-  },
-  length: {
-    label: 'Length',
-    units: {
-      m: { label: 'Meter', short: 'm', toBase: (v) => v, fromBase: (v) => v },
-      km: { label: 'Kilometer', short: 'km', toBase: (v) => v * 1000, fromBase: (v) => v / 1000 },
-      cm: { label: 'Centimeter', short: 'cm', toBase: (v) => v / 100, fromBase: (v) => v * 100 },
-      in: { label: 'Inch', short: 'in', toBase: (v) => v * 0.0254, fromBase: (v) => v / 0.0254 },
-      ft: { label: 'Foot', short: 'ft', toBase: (v) => v * 0.3048, fromBase: (v) => v / 0.3048 },
-      yd: { label: 'Yard', short: 'yd', toBase: (v) => v * 0.9144, fromBase: (v) => v / 0.9144 },
-      mi: { label: 'Mile', short: 'mi', toBase: (v) => v * 1609.344, fromBase: (v) => v / 1609.344 }
-    },
-    quickPairs: [
-      ['mi', 'km'],
-      ['in', 'cm'],
-      ['ft', 'm']
-    ]
-  },
-  temperature: {
-    label: 'Temperature',
-    units: {
-      c: { label: 'Celsius', short: 'C', toBase: (v) => v, fromBase: (v) => v },
-      f: { label: 'Fahrenheit', short: 'F', toBase: (v) => ((v - 32) * 5) / 9, fromBase: (v) => (v * 9) / 5 + 32 },
-      k: { label: 'Kelvin', short: 'K', toBase: (v) => v - 273.15, fromBase: (v) => v + 273.15 }
-    },
-    quickPairs: [
-      ['f', 'c'],
-      ['c', 'f'],
-      ['k', 'c']
-    ]
-  },
-  volume: {
-    label: 'Volume',
-    units: {
-      l: { label: 'Liter', short: 'L', toBase: (v) => v, fromBase: (v) => v },
-      ml: { label: 'Milliliter', short: 'mL', toBase: (v) => v / 1000, fromBase: (v) => v * 1000 },
-      gal: { label: 'US Gallon', short: 'gal', toBase: (v) => v * 3.785411784, fromBase: (v) => v / 3.785411784 },
-      qt: { label: 'US Quart', short: 'qt', toBase: (v) => v * 0.946352946, fromBase: (v) => v / 0.946352946 },
-      cup: { label: 'Cup', short: 'cup', toBase: (v) => v * 0.2365882365, fromBase: (v) => v / 0.2365882365 }
-    },
-    quickPairs: [
-      ['gal', 'l'],
-      ['l', 'ml'],
-      ['cup', 'ml']
-    ]
-  },
-  area: {
-    label: 'Area',
-    units: {
-      m2: { label: 'Square Meter', short: 'm2', toBase: (v) => v, fromBase: (v) => v },
-      km2: { label: 'Square Kilometer', short: 'km2', toBase: (v) => v * 1_000_000, fromBase: (v) => v / 1_000_000 },
-      ft2: { label: 'Square Foot', short: 'ft2', toBase: (v) => v * 0.09290304, fromBase: (v) => v / 0.09290304 },
-      acre: { label: 'Acre', short: 'acre', toBase: (v) => v * 4046.8564224, fromBase: (v) => v / 4046.8564224 },
-      ha: { label: 'Hectare', short: 'ha', toBase: (v) => v * 10_000, fromBase: (v) => v / 10_000 }
-    },
-    quickPairs: [
-      ['acre', 'ha'],
-      ['ft2', 'm2'],
-      ['ha', 'm2']
-    ]
-  },
-  speed: {
-    label: 'Speed',
-    units: {
-      mps: { label: 'Meters / Second', short: 'm/s', toBase: (v) => v, fromBase: (v) => v },
-      kph: { label: 'Kilometers / Hour', short: 'km/h', toBase: (v) => v / 3.6, fromBase: (v) => v * 3.6 },
-      mph: { label: 'Miles / Hour', short: 'mph', toBase: (v) => v * 0.44704, fromBase: (v) => v / 0.44704 },
-      knot: { label: 'Knot', short: 'kt', toBase: (v) => v * 0.514444, fromBase: (v) => v / 0.514444 }
-    },
-    quickPairs: [
-      ['mph', 'kph'],
-      ['kph', 'mps'],
-      ['knot', 'mph']
-    ]
-  },
-  time: {
-    label: 'Time',
-    units: {
-      s: { label: 'Second', short: 's', toBase: (v) => v, fromBase: (v) => v },
-      min: { label: 'Minute', short: 'min', toBase: (v) => v * 60, fromBase: (v) => v / 60 },
-      hr: { label: 'Hour', short: 'hr', toBase: (v) => v * 3600, fromBase: (v) => v / 3600 },
-      day: { label: 'Day', short: 'day', toBase: (v) => v * 86400, fromBase: (v) => v / 86400 },
-      week: { label: 'Week', short: 'wk', toBase: (v) => v * 604800, fromBase: (v) => v / 604800 },
-      ms: { label: 'Millisecond', short: 'ms', toBase: (v) => v / 1000, fromBase: (v) => v * 1000 }
-    },
-    quickPairs: [
-      ['hr', 'min'],
-      ['day', 'hr'],
-      ['min', 's']
-    ]
-  }
-};
-
-const categoryEntries = Object.entries(converterCatalog) as Array<[CategoryKey, CategoryDefinition]>;
+const HISTORY_KEY = 'unit-lab-history-v2';
+const FAVORITES_KEY = 'unit-lab-favorites-v2';
+const THEME_KEY = 'unit-lab-theme-v2';
+const PRESET_KEY = 'unit-lab-preset-v2';
+const PROFILES_KEY = 'unit-lab-profiles-v2';
+const ONBOARDING_KEY = 'unit-lab-onboarding-dismissed-v2';
 
 function App() {
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    const storedTheme = window.localStorage.getItem('unit-lab-theme');
-    return storedTheme === 'dark' ? 'dark' : 'light';
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    return stored === 'dark' || stored === 'light' || stored === 'auto' ? stored : 'auto';
   });
+  const [themePreset, setThemePreset] = useState<ThemePreset>(() => {
+    const stored = window.localStorage.getItem(PRESET_KEY);
+    return stored === 'slate' || stored === 'solarized' || stored === 'ocean' ? stored : 'ocean';
+  });
+
   const [category, setCategory] = useState<CategoryKey>('weight');
   const [fromUnit, setFromUnit] = useState('lb');
   const [toUnit, setToUnit] = useState('kg');
   const [inputValue, setInputValue] = useState('1');
-  const [decimalHoursValue, setDecimalHoursValue] = useState('2.75');
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [precision, setPrecision] = useState(8);
+  const [scientific, setScientific] = useState(false);
+  const [copyMode, setCopyMode] = useState<CopyMode>('result');
+
+  const [fromFilter, setFromFilter] = useState('');
+  const [toFilter, setToFilter] = useState('');
+
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    const stored = window.localStorage.getItem(HISTORY_KEY);
+    try {
+      return stored ? (JSON.parse(stored) as HistoryItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [favorites, setFavorites] = useState<FavoritePair[]>(() => {
+    const stored = window.localStorage.getItem(FAVORITES_KEY);
+    try {
+      return stored ? (JSON.parse(stored) as FavoritePair[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [profiles, setProfiles] = useState<SavedProfile[]>(() => {
+    const stored = window.localStorage.getItem(PROFILES_KEY);
+    try {
+      return stored ? (JSON.parse(stored) as SavedProfile[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [profileName, setProfileName] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const [decimalHoursValue, setDecimalHoursValue] = useState('2.75');
+  const [clockValue, setClockValue] = useState('02:45:00');
+
+  const [nlQuery, setNlQuery] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState('');
+
+  const [showOnboarding, setShowOnboarding] = useState(() => window.localStorage.getItem(ONBOARDING_KEY) !== '1');
+
+  const [currencyFrom, setCurrencyFrom] = useState('USD');
+  const [currencyTo, setCurrencyTo] = useState('EUR');
+  const [currencyAmount, setCurrencyAmount] = useState('100');
+  const [currencyResult, setCurrencyResult] = useState('');
+  const [currencyError, setCurrencyError] = useState('');
+  const [currencyLoading, setCurrencyLoading] = useState(false);
+
+  const valueInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeCategory = converterCatalog[category];
-  const unitEntries = Object.entries(activeCategory.units);
   const parsedValue = Number(inputValue);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    window.localStorage.setItem('unit-lab-theme', theme);
-  }, [theme]);
-
-  const result = useMemo(() => {
-    if (!Number.isFinite(parsedValue)) {
-      return NaN;
-    }
-
-    const fromDefinition = activeCategory.units[fromUnit];
-    const toDefinition = activeCategory.units[toUnit];
-
-    if (!fromDefinition || !toDefinition) {
-      return NaN;
-    }
-
-    const base = fromDefinition.toBase(parsedValue);
-    return toDefinition.fromBase(base);
-  }, [activeCategory.units, fromUnit, parsedValue, toUnit]);
-
-  const formatNumber = (value: number): string => {
-    if (!Number.isFinite(value)) {
-      return '-';
-    }
-
-    return value.toLocaleString(undefined, {
-      maximumFractionDigits: 8
+  const filteredFromUnits = useMemo(() => {
+    const needle = fromFilter.trim().toLowerCase();
+    return Object.entries(activeCategory.units).filter(([key, unit]) => {
+      if (!needle) {
+        return true;
+      }
+      return (
+        key.includes(needle) ||
+        unit.short.toLowerCase().includes(needle) ||
+        unit.label.toLowerCase().includes(needle)
+      );
     });
-  };
+  }, [activeCategory.units, fromFilter]);
 
-  const decimalToClockTime = (decimalHours: number): string => {
-    if (!Number.isFinite(decimalHours)) {
-      return '-';
+  const filteredToUnits = useMemo(() => {
+    const needle = toFilter.trim().toLowerCase();
+    return Object.entries(activeCategory.units).filter(([key, unit]) => {
+      if (!needle) {
+        return true;
+      }
+      return (
+        key.includes(needle) ||
+        unit.short.toLowerCase().includes(needle) ||
+        unit.label.toLowerCase().includes(needle)
+      );
+    });
+  }, [activeCategory.units, toFilter]);
+
+  const result = useMemo(() => convertValue(activeCategory, fromUnit, toUnit, parsedValue), [
+    activeCategory,
+    fromUnit,
+    toUnit,
+    parsedValue
+  ]);
+
+  const formattedResult = formatNumber(result, precision, scientific);
+  const fromLabel = activeCategory.units[fromUnit]?.short ?? fromUnit;
+  const toLabel = activeCategory.units[toUnit]?.short ?? toUnit;
+
+  const formulaPreview = useMemo(() => {
+    const zero = convertValue(activeCategory, fromUnit, toUnit, 0);
+    const one = convertValue(activeCategory, fromUnit, toUnit, 1);
+
+    if (!Number.isFinite(zero) || !Number.isFinite(one)) {
+      return 'Formula preview unavailable';
     }
 
-    const sign = decimalHours < 0 ? '-' : '';
-    let totalSeconds = Math.round(Math.abs(decimalHours) * 3600);
-    const days = Math.floor(totalSeconds / 86400);
-    totalSeconds -= days * 86400;
+    const slope = one - zero;
+    const intercept = zero;
+    return `${toLabel} = (${formatNumber(slope, 8, false)} * ${fromLabel}) + ${formatNumber(intercept, 8, false)}`;
+  }, [activeCategory, fromLabel, fromUnit, toLabel, toUnit]);
 
-    const hours = Math.floor(totalSeconds / 3600);
-    totalSeconds -= hours * 3600;
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds - minutes * 60;
+  const isFavorite = favorites.some((item) => item.category === category && item.from === fromUnit && item.to === toUnit);
 
-    const hh = String(hours).padStart(2, '0');
-    const mm = String(minutes).padStart(2, '0');
-    const ss = String(seconds).padStart(2, '0');
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const qCategory = query.get('category');
+    const qFrom = query.get('from');
+    const qTo = query.get('to');
+    const qValue = query.get('value');
 
-    if (days > 0) {
-      return `${sign}${days}d ${hh}:${mm}:${ss}`;
+    if (qCategory && qCategory in converterCatalog) {
+      const nextCategory = qCategory as CategoryKey;
+      setCategory(nextCategory);
+      if (qFrom && converterCatalog[nextCategory].units[qFrom]) {
+        setFromUnit(qFrom);
+      }
+      if (qTo && converterCatalog[nextCategory].units[qTo]) {
+        setToUnit(qTo);
+      }
+      if (qValue) {
+        setInputValue(qValue);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const search = new URLSearchParams();
+    search.set('category', category);
+    search.set('from', fromUnit);
+    search.set('to', toUnit);
+    search.set('value', inputValue || '0');
+    const url = `${window.location.pathname}?${search.toString()}`;
+    window.history.replaceState({}, '', url);
+  }, [category, fromUnit, toUnit, inputValue]);
+
+  useEffect(() => {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolvedTheme = themeMode === 'auto' ? (systemDark ? 'dark' : 'light') : themeMode;
+    document.documentElement.setAttribute('data-theme', resolvedTheme);
+    document.documentElement.setAttribute('data-preset', themePreset);
+
+    window.localStorage.setItem(THEME_KEY, themeMode);
+    window.localStorage.setItem(PRESET_KEY, themePreset);
+  }, [themeMode, themePreset]);
+
+  useEffect(() => {
+    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }, [history]);
+
+  useEffect(() => {
+    window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  }, [favorites]);
+
+  useEffect(() => {
+    window.localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+  }, [profiles]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
+
+      if (event.key === '/' && !typing) {
+        event.preventDefault();
+        valueInputRef.current?.focus();
+      }
+
+      if (event.key.toLowerCase() === 's' && !typing) {
+        event.preventDefault();
+        handleSwap();
+      }
+
+      if (event.key === 'Enter' && !typing) {
+        addToHistory();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  useEffect(() => {
+    const amount = Number(currencyAmount);
+    if (!Number.isFinite(amount)) {
+      setCurrencyResult('-');
+      return;
     }
 
-    return `${sign}${hh}:${mm}:${ss}`;
-  };
+    let cancelled = false;
+    const run = async (): Promise<void> => {
+      setCurrencyLoading(true);
+      setCurrencyError('');
+      try {
+        const response = await fetch(
+          `https://api.frankfurter.app/latest?from=${encodeURIComponent(currencyFrom)}&to=${encodeURIComponent(currencyTo)}`
+        );
+        if (!response.ok) {
+          throw new Error('Request failed');
+        }
+        const data = (await response.json()) as { rates: Record<string, number> };
+        const rate = data.rates[currencyTo];
+        if (!rate || cancelled) {
+          return;
+        }
+        setCurrencyResult(formatNumber(amount * rate, 6, false));
+      } catch {
+        if (!cancelled) {
+          setCurrencyError('Currency API unavailable right now');
+          setCurrencyResult('-');
+        }
+      } finally {
+        if (!cancelled) {
+          setCurrencyLoading(false);
+        }
+      }
+    };
 
-  const parsedDecimalHours = Number(decimalHoursValue);
-  const decimalClockResult = decimalToClockTime(parsedDecimalHours);
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [currencyAmount, currencyFrom, currencyTo]);
 
   const handleCategoryChange = (nextCategory: CategoryKey): void => {
-    const nextConfig = converterCatalog[nextCategory];
-    const [nextFrom, nextTo] = nextConfig.quickPairs[0];
+    const next = converterCatalog[nextCategory];
+    const [from, to] = next.quickPairs[0];
     setCategory(nextCategory);
-    setFromUnit(nextFrom);
-    setToUnit(nextTo);
+    setFromUnit(from);
+    setToUnit(to);
+    setFromFilter('');
+    setToFilter('');
   };
 
   const handleSwap = (): void => {
@@ -222,16 +292,54 @@ function App() {
     setToUnit(fromUnit);
   };
 
+  const handleFromSelect = (nextFrom: string): void => {
+    setFromUnit(nextFrom);
+    if (nextFrom === toUnit) {
+      setToUnit(fromUnit);
+      setNotice('Auto-swapped to avoid identical units');
+      setTimeout(() => setNotice(''), 1600);
+    }
+  };
+
+  const handleToSelect = (nextTo: string): void => {
+    setToUnit(nextTo);
+    if (nextTo === fromUnit) {
+      setFromUnit(toUnit);
+      setNotice('Auto-swapped to avoid identical units');
+      setTimeout(() => setNotice(''), 1600);
+    }
+  };
+
   const addToHistory = (): void => {
     if (!Number.isFinite(parsedValue) || !Number.isFinite(result)) {
       return;
     }
+    const text = `${formatNumber(parsedValue, precision, scientific)} ${fromLabel} = ${formattedResult} ${toLabel}`;
+    setHistory((prev) => [{ id: Date.now(), text }, ...prev].slice(0, 10));
+  };
 
-    const fromLabel = activeCategory.units[fromUnit].short;
-    const toLabel = activeCategory.units[toUnit].short;
-    const text = `${formatNumber(parsedValue)} ${fromLabel} -> ${formatNumber(result)} ${toLabel}`;
+  const clearForm = (): void => {
+    setInputValue('');
+    setCopyStatus('');
+  };
 
-    setHistory((prev) => [{ id: Date.now(), text }, ...prev].slice(0, 6));
+  const resetCategoryDefaults = (): void => {
+    const [from, to] = activeCategory.quickPairs[0];
+    setFromUnit(from);
+    setToUnit(to);
+    setInputValue('1');
+    setFromFilter('');
+    setToFilter('');
+  };
+
+  const toggleFavorite = (): void => {
+    setFavorites((prev) => {
+      const exists = prev.some((item) => item.category === category && item.from === fromUnit && item.to === toUnit);
+      if (exists) {
+        return prev.filter((item) => !(item.category === category && item.from === fromUnit && item.to === toUnit));
+      }
+      return [{ category, from: fromUnit, to: toUnit }, ...prev].slice(0, 16);
+    });
   };
 
   const copyResult = async (): Promise<void> => {
@@ -239,8 +347,13 @@ function App() {
       return;
     }
 
+    const payload =
+      copyMode === 'result'
+        ? formattedResult
+        : `${formatNumber(parsedValue, precision, scientific)} ${fromLabel} = ${formattedResult} ${toLabel}`;
+
     try {
-      await navigator.clipboard.writeText(formatNumber(result));
+      await navigator.clipboard.writeText(payload);
       setCopyStatus('Copied');
       setTimeout(() => setCopyStatus(''), 1200);
     } catch {
@@ -249,16 +362,117 @@ function App() {
     }
   };
 
-  const handleThemeToggle = (): void => {
-    setTheme((current) => (current === 'light' ? 'dark' : 'light'));
+  const decimalClockResult = decimalHoursToClock(Number(decimalHoursValue));
+  const clockToDecimal = clockToDecimalHours(clockValue);
+
+  const applyNaturalQuery = (): void => {
+    const parsed = parseNaturalQuery(nlQuery);
+    if (!parsed) {
+      setNotice('Could not parse command. Try: 15 lb to kg');
+      setTimeout(() => setNotice(''), 1600);
+      return;
+    }
+
+    const targetCategory = categoryEntries.find(([, entry]) => entry.units[parsed.from] && entry.units[parsed.to]);
+    if (!targetCategory) {
+      setNotice('Units not found in same category');
+      setTimeout(() => setNotice(''), 1600);
+      return;
+    }
+
+    setCategory(targetCategory[0]);
+    setFromUnit(parsed.from);
+    setToUnit(parsed.to);
+    setInputValue(String(parsed.value));
   };
+
+  const startVoiceInput = (): void => {
+    const voiceWindow = window as unknown as {
+      SpeechRecognition?: new () => any;
+      webkitSpeechRecognition?: new () => any;
+    };
+
+    const SpeechRecognitionCtor = voiceWindow.SpeechRecognition ?? voiceWindow.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      setVoiceStatus('Voice recognition unavailable in this browser');
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setNlQuery(transcript);
+      setVoiceStatus('Voice captured');
+    };
+    recognition.onerror = () => setVoiceStatus('Voice capture failed');
+    recognition.start();
+  };
+
+  const saveProfile = (): void => {
+    const name = profileName.trim();
+    if (!name) {
+      return;
+    }
+
+    setProfiles((prev) => {
+      const filtered = prev.filter((item) => item.name !== name);
+      return [{ name, category, from: fromUnit, to: toUnit, value: inputValue }, ...filtered].slice(0, 10);
+    });
+    setProfileName('');
+  };
+
+  const loadProfile = (profile: SavedProfile): void => {
+    setCategory(profile.category);
+    setFromUnit(profile.from);
+    setToUnit(profile.to);
+    setInputValue(profile.value);
+  };
+
+  const favoritePairsForCategory = favorites.filter((item) => item.category === category);
 
   return (
     <main className="page">
+      {showOnboarding && (
+        <section className="onboarding">
+          <strong>Tip:</strong> Press <kbd>/</kbd> to focus input, <kbd>S</kbd> to swap, and <kbd>Enter</kbd> to save to history.
+          <button
+            type="button"
+            onClick={() => {
+              setShowOnboarding(false);
+              window.localStorage.setItem(ONBOARDING_KEY, '1');
+            }}
+          >
+            Dismiss
+          </button>
+        </section>
+      )}
+
       <section className="shell">
         <aside className="menuPanel">
           <h1>Unit Lab</h1>
-          <p>Dynamic converter with quick routes across unit families.</p>
+          <p>Advanced converter workspace.</p>
+
+          <div className="themeControls">
+            <label>
+              Theme
+              <select value={themeMode} onChange={(event) => setThemeMode(event.target.value as ThemeMode)}>
+                <option value="auto">Auto</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label>
+              Preset
+              <select value={themePreset} onChange={(event) => setThemePreset(event.target.value as ThemePreset)}>
+                <option value="ocean">Ocean</option>
+                <option value="slate">Slate</option>
+                <option value="solarized">Solarized</option>
+              </select>
+            </label>
+          </div>
+
           <nav className="menu">
             {categoryEntries.map(([key, item]) => (
               <button
@@ -271,16 +485,15 @@ function App() {
               </button>
             ))}
           </nav>
+
+          <a className="feedbackLink" href="https://github.com/noobmaster69/testingproject11-4-23/issues" target="_blank" rel="noreferrer">
+            Send feedback
+          </a>
         </aside>
 
         <section className="converterPanel">
           <header className="topBar">
-            <div className="topHeader">
-              <h2>{activeCategory.label} Converter</h2>
-              <button type="button" className="themeToggle" onClick={handleThemeToggle}>
-                {theme === 'light' ? 'Dark Theme' : 'Light Theme'}
-              </button>
-            </div>
+            <h2>{activeCategory.label} Converter</h2>
             <div className="chips">
               {activeCategory.quickPairs.map(([from, to]) => (
                 <button
@@ -296,12 +509,25 @@ function App() {
                 </button>
               ))}
             </div>
+            {favoritePairsForCategory.length > 0 && (
+              <div className="chips">
+                {favoritePairsForCategory.map((pair) => (
+                  <button key={`${pair.category}-${pair.from}-${pair.to}`} type="button" className="chip fav" onClick={() => {
+                    setFromUnit(pair.from);
+                    setToUnit(pair.to);
+                  }}>
+                    Starred: {activeCategory.units[pair.from]?.short} {'->'} {activeCategory.units[pair.to]?.short}
+                  </button>
+                ))}
+              </div>
+            )}
           </header>
 
           <div className="fieldGrid">
             <label className="field">
               <span>Value</span>
               <input
+                ref={valueInputRef}
                 type="number"
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
@@ -310,9 +536,14 @@ function App() {
             </label>
 
             <label className="field">
+              <span>Find from unit</span>
+              <input value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} placeholder="Search..." />
+            </label>
+
+            <label className="field">
               <span>From</span>
-              <select value={fromUnit} onChange={(event) => setFromUnit(event.target.value)}>
-                {unitEntries.map(([key, item]) => (
+              <select value={fromUnit} onChange={(event) => handleFromSelect(event.target.value)}>
+                {filteredFromUnits.map(([key, item]) => (
                   <option key={key} value={key}>
                     {item.label} ({item.short})
                   </option>
@@ -325,9 +556,14 @@ function App() {
             </button>
 
             <label className="field">
+              <span>Find to unit</span>
+              <input value={toFilter} onChange={(event) => setToFilter(event.target.value)} placeholder="Search..." />
+            </label>
+
+            <label className="field">
               <span>To</span>
-              <select value={toUnit} onChange={(event) => setToUnit(event.target.value)}>
-                {unitEntries.map(([key, item]) => (
+              <select value={toUnit} onChange={(event) => handleToSelect(event.target.value)}>
+                {filteredToUnits.map(([key, item]) => (
                   <option key={key} value={key}>
                     {item.label} ({item.short})
                   </option>
@@ -336,19 +572,43 @@ function App() {
             </label>
           </div>
 
+          <div className="controlsRow">
+            <label>
+              Precision
+              <input
+                type="number"
+                min={0}
+                max={12}
+                value={precision}
+                onChange={(event) => setPrecision(Number(event.target.value))}
+              />
+            </label>
+            <label className="checkbox">
+              <input type="checkbox" checked={scientific} onChange={(event) => setScientific(event.target.checked)} />
+              Scientific notation
+            </label>
+            <label>
+              Copy format
+              <select value={copyMode} onChange={(event) => setCopyMode(event.target.value as CopyMode)}>
+                <option value="result">Result only</option>
+                <option value="full">Full statement</option>
+              </select>
+            </label>
+          </div>
+
           <section className="resultCard">
             <div>
               <span>Converted value</span>
-              <strong>{formatNumber(result)}</strong>
+              <strong>{formattedResult}</strong>
+              <p className="formula">{formulaPreview}</p>
             </div>
             <div className="actions">
-              <button type="button" onClick={addToHistory}>
-                Save to history
-              </button>
-              <button type="button" onClick={copyResult}>
-                Copy result
-              </button>
-              <small>{copyStatus}</small>
+              <button type="button" onClick={addToHistory}>Save</button>
+              <button type="button" onClick={copyResult}>Copy</button>
+              <button type="button" onClick={toggleFavorite}>{isFavorite ? 'Unstar' : 'Star'}</button>
+              <button type="button" onClick={clearForm}>Clear</button>
+              <button type="button" onClick={resetCategoryDefaults}>Reset</button>
+              <small>{copyStatus || notice}</small>
             </div>
           </section>
 
@@ -365,10 +625,38 @@ function App() {
             )}
           </section>
 
+          <section className="profilePanel">
+            <h3>Profiles</h3>
+            <div className="inline">
+              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Profile name" />
+              <button type="button" onClick={saveProfile}>Save profile</button>
+            </div>
+            <div className="chips">
+              {profiles.map((profile) => (
+                <button key={profile.name} type="button" className="chip" onClick={() => loadProfile(profile)}>
+                  {profile.name}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="nlPanel">
+            <h3>Natural Language + Voice</h3>
+            <div className="inline">
+              <input
+                value={nlQuery}
+                onChange={(event) => setNlQuery(event.target.value)}
+                placeholder="Example: 15 lb to kg"
+              />
+              <button type="button" onClick={applyNaturalQuery}>Apply</button>
+              <button type="button" onClick={startVoiceInput}>Voice</button>
+            </div>
+            <p className="empty">{voiceStatus}</p>
+          </section>
+
           {category === 'time' && (
             <section className="timePanel">
-              <h3>Decimal To Time</h3>
-              <p>Enter decimal hours and get a clock-style value.</p>
+              <h3>Decimal {'<->'} Time</h3>
               <div className="timeRow">
                 <label className="field">
                   <span>Decimal hours</span>
@@ -384,8 +672,35 @@ function App() {
                   <strong>{decimalClockResult}</strong>
                 </div>
               </div>
+
+              <div className="timeRow">
+                <label className="field">
+                  <span>Clock time (HH:MM[:SS] or 1d HH:MM:SS)</span>
+                  <input value={clockValue} onChange={(event) => setClockValue(event.target.value)} placeholder="02:30:00" />
+                </label>
+                <div className="clockResult">
+                  <span>Decimal hours</span>
+                  <strong>{Number.isFinite(clockToDecimal) ? formatNumber(clockToDecimal, 8, false) : '-'}</strong>
+                </div>
+              </div>
             </section>
           )}
+
+          <section className="currencyPanel">
+            <h3>Currency (Live API)</h3>
+            <div className="inline">
+              <input value={currencyAmount} onChange={(event) => setCurrencyAmount(event.target.value)} type="number" />
+              <input value={currencyFrom} onChange={(event) => setCurrencyFrom(event.target.value.toUpperCase())} maxLength={3} />
+              <span>{'->'}</span>
+              <input value={currencyTo} onChange={(event) => setCurrencyTo(event.target.value.toUpperCase())} maxLength={3} />
+              <strong>{currencyLoading ? 'Loading...' : currencyResult || '-'}</strong>
+            </div>
+            {currencyError && <p className="empty">{currencyError}</p>}
+          </section>
+
+          <a className="feedbackLink" href="./CHANGELOG.md" target="_blank" rel="noreferrer">
+            View changelog
+          </a>
         </section>
       </section>
     </main>
@@ -393,3 +708,4 @@ function App() {
 }
 
 export default App;
+
