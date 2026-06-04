@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type UnitDefinition = {
   label: string;
@@ -19,6 +19,8 @@ type HistoryItem = {
   id: number;
   text: string;
 };
+
+type ThemeMode = 'light' | 'dark';
 
 const converterCatalog: Record<CategoryKey, CategoryDefinition> = {
   weight: {
@@ -131,6 +133,10 @@ const converterCatalog: Record<CategoryKey, CategoryDefinition> = {
 const categoryEntries = Object.entries(converterCatalog) as Array<[CategoryKey, CategoryDefinition]>;
 
 function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const storedTheme = window.localStorage.getItem('unit-lab-theme');
+    return storedTheme === 'dark' ? 'dark' : 'light';
+  });
   const [category, setCategory] = useState<CategoryKey>('weight');
   const [fromUnit, setFromUnit] = useState('lb');
   const [toUnit, setToUnit] = useState('kg');
@@ -142,6 +148,11 @@ function App() {
   const activeCategory = converterCatalog[category];
   const unitEntries = Object.entries(activeCategory.units);
   const parsedValue = Number(inputValue);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    window.localStorage.setItem('unit-lab-theme', theme);
+  }, [theme]);
 
   const result = useMemo(() => {
     if (!Number.isFinite(parsedValue)) {
@@ -238,6 +249,10 @@ function App() {
     }
   };
 
+  const handleThemeToggle = (): void => {
+    setTheme((current) => (current === 'light' ? 'dark' : 'light'));
+  };
+
   return (
     <main className="page">
       <section className="shell">
@@ -260,7 +275,12 @@ function App() {
 
         <section className="converterPanel">
           <header className="topBar">
-            <h2>{activeCategory.label} Converter</h2>
+            <div className="topHeader">
+              <h2>{activeCategory.label} Converter</h2>
+              <button type="button" className="themeToggle" onClick={handleThemeToggle}>
+                {theme === 'light' ? 'Dark Theme' : 'Light Theme'}
+              </button>
+            </div>
             <div className="chips">
               {activeCategory.quickPairs.map(([from, to]) => (
                 <button
