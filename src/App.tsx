@@ -15,6 +15,8 @@ import {
 type ThemeMode = 'light' | 'dark' | 'auto';
 type ThemePreset = 'ocean' | 'slate' | 'solarized';
 type CopyMode = 'result' | 'full';
+type PageKey = 'units' | 'time' | 'currency' | 'files';
+type FileTypeKey = 'pdf' | 'doc' | 'docx' | 'txt' | 'md' | 'png' | 'jpg' | 'svg' | 'mp3' | 'wav';
 
 type SavedProfile = {
   name: string;
@@ -24,6 +26,35 @@ type SavedProfile = {
   value: string;
 };
 
+const pageOptions: Array<{ key: PageKey; label: string; description: string }> = [
+  { key: 'units', label: 'Unit Converter', description: 'Weight, length, temperature, and more.' },
+  { key: 'time', label: 'Time Converter', description: 'Time units plus decimal hours and clock time.' },
+  { key: 'currency', label: 'Currency Converter', description: 'Live FX conversion from Frankfurter.' },
+  { key: 'files', label: 'File Type Switcher', description: 'Change file extensions for common formats.' }
+];
+
+const fileTypeOptions: Array<{ key: FileTypeKey; label: string }> = [
+  { key: 'pdf', label: 'PDF' },
+  { key: 'doc', label: 'DOC' },
+  { key: 'docx', label: 'DOCX' },
+  { key: 'txt', label: 'TXT' },
+  { key: 'md', label: 'Markdown' },
+  { key: 'png', label: 'PNG' },
+  { key: 'jpg', label: 'JPG' },
+  { key: 'svg', label: 'SVG' },
+  { key: 'mp3', label: 'MP3' },
+  { key: 'wav', label: 'WAV' }
+];
+
+const filePresetPairs: Array<[FileTypeKey, FileTypeKey]> = [
+  ['pdf', 'docx'],
+  ['docx', 'pdf'],
+  ['png', 'jpg'],
+  ['jpg', 'png'],
+  ['wav', 'mp3'],
+  ['mp3', 'wav']
+];
+
 const HISTORY_KEY = 'unit-lab-history-v2';
 const FAVORITES_KEY = 'unit-lab-favorites-v2';
 const THEME_KEY = 'unit-lab-theme-v2';
@@ -32,6 +63,11 @@ const PROFILES_KEY = 'unit-lab-profiles-v2';
 const ONBOARDING_KEY = 'unit-lab-onboarding-dismissed-v2';
 
 function App() {
+  const initialPage = (() => {
+    const queryPage = new URLSearchParams(window.location.search).get('page');
+    return queryPage === 'units' || queryPage === 'time' || queryPage === 'currency' || queryPage === 'files' ? queryPage : 'units';
+  })();
+
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = window.localStorage.getItem(THEME_KEY);
     return stored === 'dark' || stored === 'light' || stored === 'auto' ? stored : 'auto';
@@ -40,6 +76,8 @@ function App() {
     const stored = window.localStorage.getItem(PRESET_KEY);
     return stored === 'slate' || stored === 'solarized' || stored === 'ocean' ? stored : 'ocean';
   });
+
+  const [activePage, setActivePage] = useState<PageKey>(initialPage);
 
   const [category, setCategory] = useState<CategoryKey>('weight');
   const [fromUnit, setFromUnit] = useState('lb');
@@ -98,9 +136,15 @@ function App() {
   const [currencyError, setCurrencyError] = useState('');
   const [currencyLoading, setCurrencyLoading] = useState(false);
 
+  const [fileName, setFileName] = useState('report.pdf');
+  const [fileFromType, setFileFromType] = useState<FileTypeKey>('pdf');
+  const [fileToType, setFileToType] = useState<FileTypeKey>('docx');
+  const [fileStatus, setFileStatus] = useState('');
+
   const valueInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeCategory = converterCatalog[category];
+  const activePageInfo = pageOptions.find((page) => page.key === activePage) ?? pageOptions[0];
   const parsedValue = Number(inputValue);
 
   const filteredFromUnits = useMemo(() => {
@@ -141,6 +185,12 @@ function App() {
   const formattedResult = formatNumber(result, precision, scientific);
   const fromLabel = activeCategory.units[fromUnit]?.short ?? fromUnit;
   const toLabel = activeCategory.units[toUnit]?.short ?? toUnit;
+  const fileBaseName = useMemo(() => fileName.replace(/\.[^.]+$/, '') || 'file', [fileName]);
+  const filePreviewName = `${fileBaseName}.${fileToType}`;
+  const fileFormatHint =
+    fileFromType === fileToType
+      ? 'Pick a different output type to change the file extension.'
+      : `Rename the extension from .${fileFromType} to .${fileToType}.`;
 
   const formulaPreview = useMemo(() => {
     const zero = convertValue(activeCategory, fromUnit, toUnit, 0);
@@ -159,10 +209,18 @@ function App() {
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
+    const qPage = query.get('page');
     const qCategory = query.get('category');
     const qFrom = query.get('from');
     const qTo = query.get('to');
     const qValue = query.get('value');
+
+    if (qPage === 'units' || qPage === 'time' || qPage === 'currency' || qPage === 'files') {
+      setActivePage(qPage);
+      if (qPage === 'time') {
+        setCategory('time');
+      }
+    }
 
     if (qCategory && qCategory in converterCatalog) {
       const nextCategory = qCategory as CategoryKey;
@@ -177,17 +235,47 @@ function App() {
         setInputValue(qValue);
       }
     }
+
+    const qFileName = query.get('fileName');
+    const qFileFrom = query.get('fileFrom');
+    const qFileTo = query.get('fileTo');
+    if (qFileName) {
+      setFileName(qFileName);
+    }
+    if (qFileFrom && fileTypeOptions.some((item) => item.key === qFileFrom)) {
+      setFileFromType(qFileFrom as FileTypeKey);
+    }
+    if (qFileTo && fileTypeOptions.some((item) => item.key === qFileTo)) {
+      setFileToType(qFileTo as FileTypeKey);
+    }
   }, []);
 
   useEffect(() => {
     const search = new URLSearchParams();
-    search.set('category', category);
-    search.set('from', fromUnit);
-    search.set('to', toUnit);
-    search.set('value', inputValue || '0');
+    search.set('page', activePage);
+
+    if (activePage === 'units' || activePage === 'time') {
+      search.set('category', category);
+      search.set('from', fromUnit);
+      search.set('to', toUnit);
+      search.set('value', inputValue || '0');
+    }
+
+    if (activePage === 'currency') {
+      search.set('currencyFrom', currencyFrom);
+      search.set('currencyTo', currencyTo);
+      search.set('currencyAmount', currencyAmount || '0');
+    }
+
+    if (activePage === 'files') {
+      search.set('fileName', fileName);
+      search.set('fileFrom', fileFromType);
+      search.set('fileTo', fileToType);
+    }
+
     const url = `${window.location.pathname}?${search.toString()}`;
     window.history.replaceState({}, '', url);
-  }, [category, fromUnit, toUnit, inputValue]);
+  }, [activePage, category, currencyAmount, currencyFrom, currencyTo, fileFromType, fileName, fileToType, fromUnit, inputValue, toUnit]);
 
   useEffect(() => {
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -428,6 +516,27 @@ function App() {
     setFromUnit(profile.from);
     setToUnit(profile.to);
     setInputValue(profile.value);
+    setActivePage('units');
+  };
+
+  const handlePageChange = (nextPage: PageKey): void => {
+    setActivePage(nextPage);
+    if (nextPage === 'time') {
+      setCategory('time');
+    }
+  };
+
+  const handleFileRename = (): void => {
+    setFileName(filePreviewName);
+    setFileStatus('Updated extension');
+    setTimeout(() => setFileStatus(''), 1200);
+  };
+
+  const swapFileTypes = (): void => {
+    setFileFromType(fileToType);
+    setFileToType(fileFromType);
+    setFileStatus('Swapped file types');
+    setTimeout(() => setFileStatus(''), 1200);
   };
 
   const favoritePairsForCategory = favorites.filter((item) => item.category === category);
@@ -454,6 +563,17 @@ function App() {
           <h1>Unit Lab</h1>
           <p>Advanced converter workspace.</p>
 
+          <label className="menuSelect">
+            Conversion page
+            <select value={activePage} onChange={(event) => handlePageChange(event.target.value as PageKey)}>
+              {pageOptions.map((page) => (
+                <option key={page.key} value={page.key}>
+                  {page.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="themeControls">
             <label>
               Theme
@@ -473,18 +593,25 @@ function App() {
             </label>
           </div>
 
-          <nav className="menu">
-            {categoryEntries.map(([key, item]) => (
-              <button
-                key={key}
-                type="button"
-                className={key === category ? 'menuButton active' : 'menuButton'}
-                onClick={() => handleCategoryChange(key)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
+          {activePage === 'units' && (
+            <label className="menuSelect">
+              Unit category
+              <select value={category} onChange={(event) => handleCategoryChange(event.target.value as CategoryKey)}>
+                {categoryEntries.map(([key, item]) => (
+                  <option key={key} value={key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {activePage !== 'units' && (
+            <div className="pageDescription">
+              <strong>{activePageInfo.label}</strong>
+              <p>{activePageInfo.description}</p>
+            </div>
+          )}
 
           <a className="feedbackLink" href="https://github.com/noobmaster69/testingproject11-4-23/issues" target="_blank" rel="noreferrer">
             Send feedback
@@ -492,211 +619,373 @@ function App() {
         </aside>
 
         <section className="converterPanel">
-          <header className="topBar">
-            <h2>{activeCategory.label} Converter</h2>
-            <div className="chips">
-              {activeCategory.quickPairs.map(([from, to]) => (
-                <button
-                  key={`${from}-${to}`}
-                  type="button"
-                  className="chip"
-                  onClick={() => {
-                    setFromUnit(from);
-                    setToUnit(to);
-                  }}
-                >
-                  {activeCategory.units[from].short} {'->'} {activeCategory.units[to].short}
-                </button>
-              ))}
-            </div>
-            {favoritePairsForCategory.length > 0 && (
-              <div className="chips">
-                {favoritePairsForCategory.map((pair) => (
-                  <button key={`${pair.category}-${pair.from}-${pair.to}`} type="button" className="chip fav" onClick={() => {
-                    setFromUnit(pair.from);
-                    setToUnit(pair.to);
-                  }}>
-                    Starred: {activeCategory.units[pair.from]?.short} {'->'} {activeCategory.units[pair.to]?.short}
-                  </button>
-                ))}
-              </div>
-            )}
-          </header>
+          {activePage === 'units' && (
+            <>
+              <header className="topBar">
+                <h2>{activeCategory.label} Converter</h2>
+                <div className="chips">
+                  {activeCategory.quickPairs.map(([from, to]) => (
+                    <button
+                      key={`${from}-${to}`}
+                      type="button"
+                      className="chip"
+                      onClick={() => {
+                        setFromUnit(from);
+                        setToUnit(to);
+                      }}
+                    >
+                      {activeCategory.units[from].short} {'->'} {activeCategory.units[to].short}
+                    </button>
+                  ))}
+                </div>
+                {favoritePairsForCategory.length > 0 && (
+                  <div className="chips">
+                    {favoritePairsForCategory.map((pair) => (
+                      <button
+                        key={`${pair.category}-${pair.from}-${pair.to}`}
+                        type="button"
+                        className="chip fav"
+                        onClick={() => {
+                          setFromUnit(pair.from);
+                          setToUnit(pair.to);
+                        }}
+                      >
+                        Starred: {activeCategory.units[pair.from]?.short} {'->'} {activeCategory.units[pair.to]?.short}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </header>
 
-          <div className="fieldGrid">
-            <label className="field">
-              <span>Value</span>
-              <input
-                ref={valueInputRef}
-                type="number"
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                placeholder="Type value"
-              />
-            </label>
-
-            <label className="field">
-              <span>Find from unit</span>
-              <input value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} placeholder="Search..." />
-            </label>
-
-            <label className="field">
-              <span>From</span>
-              <select value={fromUnit} onChange={(event) => handleFromSelect(event.target.value)}>
-                {filteredFromUnits.map(([key, item]) => (
-                  <option key={key} value={key}>
-                    {item.label} ({item.short})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button type="button" className="swap" onClick={handleSwap}>
-              Swap
-            </button>
-
-            <label className="field">
-              <span>Find to unit</span>
-              <input value={toFilter} onChange={(event) => setToFilter(event.target.value)} placeholder="Search..." />
-            </label>
-
-            <label className="field">
-              <span>To</span>
-              <select value={toUnit} onChange={(event) => handleToSelect(event.target.value)}>
-                {filteredToUnits.map(([key, item]) => (
-                  <option key={key} value={key}>
-                    {item.label} ({item.short})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="controlsRow">
-            <label>
-              Precision
-              <input
-                type="number"
-                min={0}
-                max={12}
-                value={precision}
-                onChange={(event) => setPrecision(Number(event.target.value))}
-              />
-            </label>
-            <label className="checkbox">
-              <input type="checkbox" checked={scientific} onChange={(event) => setScientific(event.target.checked)} />
-              Scientific notation
-            </label>
-            <label>
-              Copy format
-              <select value={copyMode} onChange={(event) => setCopyMode(event.target.value as CopyMode)}>
-                <option value="result">Result only</option>
-                <option value="full">Full statement</option>
-              </select>
-            </label>
-          </div>
-
-          <section className="resultCard">
-            <div>
-              <span>Converted value</span>
-              <strong>{formattedResult}</strong>
-              <p className="formula">{formulaPreview}</p>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={addToHistory}>Save</button>
-              <button type="button" onClick={copyResult}>Copy</button>
-              <button type="button" onClick={toggleFavorite}>{isFavorite ? 'Unstar' : 'Star'}</button>
-              <button type="button" onClick={clearForm}>Clear</button>
-              <button type="button" onClick={resetCategoryDefaults}>Reset</button>
-              <small>{copyStatus || notice}</small>
-            </div>
-          </section>
-
-          <section className="historyPanel">
-            <h3>Recent conversions</h3>
-            {history.length === 0 ? (
-              <p className="empty">No saved conversions yet.</p>
-            ) : (
-              <ul>
-                {history.map((entry) => (
-                  <li key={entry.id}>{entry.text}</li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="profilePanel">
-            <h3>Profiles</h3>
-            <div className="inline">
-              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Profile name" />
-              <button type="button" onClick={saveProfile}>Save profile</button>
-            </div>
-            <div className="chips">
-              {profiles.map((profile) => (
-                <button key={profile.name} type="button" className="chip" onClick={() => loadProfile(profile)}>
-                  {profile.name}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="nlPanel">
-            <h3>Natural Language + Voice</h3>
-            <div className="inline">
-              <input
-                value={nlQuery}
-                onChange={(event) => setNlQuery(event.target.value)}
-                placeholder="Example: 15 lb to kg"
-              />
-              <button type="button" onClick={applyNaturalQuery}>Apply</button>
-              <button type="button" onClick={startVoiceInput}>Voice</button>
-            </div>
-            <p className="empty">{voiceStatus}</p>
-          </section>
-
-          {category === 'time' && (
-            <section className="timePanel">
-              <h3>Decimal {'<->'} Time</h3>
-              <div className="timeRow">
+              <div className="fieldGrid">
                 <label className="field">
-                  <span>Decimal hours</span>
+                  <span>Value</span>
                   <input
+                    ref={valueInputRef}
                     type="number"
-                    value={decimalHoursValue}
-                    onChange={(event) => setDecimalHoursValue(event.target.value)}
-                    placeholder="Example: 1.5"
+                    value={inputValue}
+                    onChange={(event) => setInputValue(event.target.value)}
+                    placeholder="Type value"
                   />
                 </label>
-                <div className="clockResult">
-                  <span>Clock format</span>
-                  <strong>{decimalClockResult}</strong>
-                </div>
+
+                <label className="field">
+                  <span>Find from unit</span>
+                  <input value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} placeholder="Search..." />
+                </label>
+
+                <label className="field">
+                  <span>From</span>
+                  <select value={fromUnit} onChange={(event) => handleFromSelect(event.target.value)}>
+                    {filteredFromUnits.map(([key, item]) => (
+                      <option key={key} value={key}>
+                        {item.label} ({item.short})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button type="button" className="swap" onClick={handleSwap}>
+                  Swap
+                </button>
+
+                <label className="field">
+                  <span>Find to unit</span>
+                  <input value={toFilter} onChange={(event) => setToFilter(event.target.value)} placeholder="Search..." />
+                </label>
+
+                <label className="field">
+                  <span>To</span>
+                  <select value={toUnit} onChange={(event) => handleToSelect(event.target.value)}>
+                    {filteredToUnits.map(([key, item]) => (
+                      <option key={key} value={key}>
+                        {item.label} ({item.short})
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
-              <div className="timeRow">
-                <label className="field">
-                  <span>Clock time (HH:MM[:SS] or 1d HH:MM:SS)</span>
-                  <input value={clockValue} onChange={(event) => setClockValue(event.target.value)} placeholder="02:30:00" />
+              <div className="controlsRow">
+                <label>
+                  Precision
+                  <input
+                    type="number"
+                    min={0}
+                    max={12}
+                    value={precision}
+                    onChange={(event) => setPrecision(Number(event.target.value))}
+                  />
                 </label>
-                <div className="clockResult">
-                  <span>Decimal hours</span>
-                  <strong>{Number.isFinite(clockToDecimal) ? formatNumber(clockToDecimal, 8, false) : '-'}</strong>
-                </div>
+                <label className="checkbox">
+                  <input type="checkbox" checked={scientific} onChange={(event) => setScientific(event.target.checked)} />
+                  Scientific notation
+                </label>
+                <label>
+                  Copy format
+                  <select value={copyMode} onChange={(event) => setCopyMode(event.target.value as CopyMode)}>
+                    <option value="result">Result only</option>
+                    <option value="full">Full statement</option>
+                  </select>
+                </label>
               </div>
-            </section>
+
+              <section className="resultCard">
+                <div>
+                  <span>Converted value</span>
+                  <strong>{formattedResult}</strong>
+                  <p className="formula">{formulaPreview}</p>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={addToHistory}>Save</button>
+                  <button type="button" onClick={copyResult}>Copy</button>
+                  <button type="button" onClick={toggleFavorite}>{isFavorite ? 'Unstar' : 'Star'}</button>
+                  <button type="button" onClick={clearForm}>Clear</button>
+                  <button type="button" onClick={resetCategoryDefaults}>Reset</button>
+                  <small>{copyStatus || notice}</small>
+                </div>
+              </section>
+
+              <section className="historyPanel">
+                <h3>Recent conversions</h3>
+                {history.length === 0 ? (
+                  <p className="empty">No saved conversions yet.</p>
+                ) : (
+                  <ul>
+                    {history.map((entry) => (
+                      <li key={entry.id}>{entry.text}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="profilePanel">
+                <h3>Profiles</h3>
+                <div className="inline">
+                  <input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Profile name" />
+                  <button type="button" onClick={saveProfile}>Save profile</button>
+                </div>
+                <div className="chips">
+                  {profiles.map((profile) => (
+                    <button key={profile.name} type="button" className="chip" onClick={() => loadProfile(profile)}>
+                      {profile.name}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="nlPanel">
+                <h3>Natural Language + Voice</h3>
+                <div className="inline">
+                  <input
+                    value={nlQuery}
+                    onChange={(event) => setNlQuery(event.target.value)}
+                    placeholder="Example: 15 lb to kg"
+                  />
+                  <button type="button" onClick={applyNaturalQuery}>Apply</button>
+                  <button type="button" onClick={startVoiceInput}>Voice</button>
+                </div>
+                <p className="empty">{voiceStatus}</p>
+              </section>
+            </>
           )}
 
-          <section className="currencyPanel">
-            <h3>Currency (Live API)</h3>
-            <div className="inline">
-              <input value={currencyAmount} onChange={(event) => setCurrencyAmount(event.target.value)} type="number" />
-              <input value={currencyFrom} onChange={(event) => setCurrencyFrom(event.target.value.toUpperCase())} maxLength={3} />
-              <span>{'->'}</span>
-              <input value={currencyTo} onChange={(event) => setCurrencyTo(event.target.value.toUpperCase())} maxLength={3} />
-              <strong>{currencyLoading ? 'Loading...' : currencyResult || '-'}</strong>
-            </div>
-            {currencyError && <p className="empty">{currencyError}</p>}
-          </section>
+          {activePage === 'time' && (
+            <>
+              <header className="topBar">
+                <h2>Time Converter</h2>
+                <p className="pageDescription">Convert time units and switch between decimal hours and clock format.</p>
+              </header>
+
+              <div className="fieldGrid compactGrid">
+                <label className="field">
+                  <span>Value</span>
+                  <input
+                    ref={valueInputRef}
+                    type="number"
+                    value={inputValue}
+                    onChange={(event) => setInputValue(event.target.value)}
+                    placeholder="Type value"
+                  />
+                </label>
+                <label className="field">
+                  <span>From</span>
+                  <select value={fromUnit} onChange={(event) => handleFromSelect(event.target.value)}>
+                    {filteredFromUnits.map(([key, item]) => (
+                      <option key={key} value={key}>
+                        {item.label} ({item.short})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" className="swap" onClick={handleSwap}>
+                  Swap
+                </button>
+                <label className="field">
+                  <span>To</span>
+                  <select value={toUnit} onChange={(event) => handleToSelect(event.target.value)}>
+                    {filteredToUnits.map(([key, item]) => (
+                      <option key={key} value={key}>
+                        {item.label} ({item.short})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <section className="resultCard">
+                <div>
+                  <span>Converted value</span>
+                  <strong>{formattedResult}</strong>
+                  <p className="formula">{formulaPreview}</p>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={addToHistory}>Save</button>
+                  <button type="button" onClick={copyResult}>Copy</button>
+                  <button type="button" onClick={clearForm}>Clear</button>
+                  <button type="button" onClick={resetCategoryDefaults}>Reset</button>
+                  <small>{copyStatus || notice}</small>
+                </div>
+              </section>
+
+              <section className="timePanel">
+                <h3>Decimal {'<->'} Time</h3>
+                <div className="timeRow">
+                  <label className="field">
+                    <span>Decimal hours</span>
+                    <input
+                      type="number"
+                      value={decimalHoursValue}
+                      onChange={(event) => setDecimalHoursValue(event.target.value)}
+                      placeholder="Example: 1.5"
+                    />
+                  </label>
+                  <div className="clockResult">
+                    <span>Clock format</span>
+                    <strong>{decimalClockResult}</strong>
+                  </div>
+                </div>
+
+                <div className="timeRow">
+                  <label className="field">
+                    <span>Clock time (HH:MM[:SS] or 1d HH:MM:SS)</span>
+                    <input value={clockValue} onChange={(event) => setClockValue(event.target.value)} placeholder="02:30:00" />
+                  </label>
+                  <div className="clockResult">
+                    <span>Decimal hours</span>
+                    <strong>{Number.isFinite(clockToDecimal) ? formatNumber(clockToDecimal, 8, false) : '-'}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="historyPanel">
+                <h3>Recent conversions</h3>
+                {history.length === 0 ? (
+                  <p className="empty">No saved conversions yet.</p>
+                ) : (
+                  <ul>
+                    {history.map((entry) => (
+                      <li key={entry.id}>{entry.text}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+
+          {activePage === 'currency' && (
+            <>
+              <header className="topBar">
+                <h2>Currency Converter</h2>
+                <p className="pageDescription">Live exchange rates from Frankfurter.</p>
+              </header>
+
+              <section className="currencyPanel activePageCard">
+                <h3>Currency (Live API)</h3>
+                <div className="inline">
+                  <input value={currencyAmount} onChange={(event) => setCurrencyAmount(event.target.value)} type="number" />
+                  <input value={currencyFrom} onChange={(event) => setCurrencyFrom(event.target.value.toUpperCase())} maxLength={3} />
+                  <span>{'->'}</span>
+                  <input value={currencyTo} onChange={(event) => setCurrencyTo(event.target.value.toUpperCase())} maxLength={3} />
+                  <strong>{currencyLoading ? 'Loading...' : currencyResult || '-'}</strong>
+                </div>
+                {currencyError && <p className="empty">{currencyError}</p>}
+              </section>
+            </>
+          )}
+
+          {activePage === 'files' && (
+            <>
+              <header className="topBar">
+                <h2>File Type Switcher</h2>
+                <p className="pageDescription">Choose a source type and a new target type, then update the extension.</p>
+              </header>
+
+              <section className="filePanel activePageCard">
+                <div className="fieldGrid compactGrid fileGrid">
+                  <label className="field">
+                    <span>File name</span>
+                    <input value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="report.pdf" />
+                  </label>
+                  <label className="field">
+                    <span>From type</span>
+                    <select value={fileFromType} onChange={(event) => setFileFromType(event.target.value as FileTypeKey)}>
+                      {fileTypeOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" className="swap" onClick={swapFileTypes}>
+                    Swap
+                  </button>
+                  <label className="field">
+                    <span>To type</span>
+                    <select value={fileToType} onChange={(event) => setFileToType(event.target.value as FileTypeKey)}>
+                      {fileTypeOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="resultCard fileResultCard">
+                  <div>
+                    <span>Preview</span>
+                    <strong>{filePreviewName}</strong>
+                    <p className="formula">{fileFormatHint}</p>
+                  </div>
+                  <div className="actions">
+                    <button type="button" onClick={handleFileRename}>Update filetype</button>
+                    <small>{fileStatus}</small>
+                  </div>
+                </div>
+
+                <p className="empty fileNote">
+                  This updates the filename extension in the browser. Real PDF-to-DOC conversion would need a backend or external service.
+                </p>
+
+                <div className="chips">
+                  {filePresetPairs.map(([from, to]) => (
+                    <button
+                      key={`${from}-${to}`}
+                      type="button"
+                      className="chip"
+                      onClick={() => {
+                        setFileFromType(from as FileTypeKey);
+                        setFileToType(to as FileTypeKey);
+                      }}
+                    >
+                      {from.toUpperCase()} {'->'} {to.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
 
           <a className="feedbackLink" href="./CHANGELOG.md" target="_blank" rel="noreferrer">
             View changelog
